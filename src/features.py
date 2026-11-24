@@ -75,6 +75,13 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["cnt_lag_7"] = out[TARGET].shift(LAG_WARMUP)
     out["cnt_roll_7"] = out[TARGET].shift(1).rolling(LAG_WARMUP).mean()
 
+    # --- Range of prior demand: max minus min over the three calendar days
+    # before the prediction date. shift(1) moves cnt off today before the
+    # rolling window sees it, so the window covers the three days strictly
+    # before d and nothing at or after d leaks in.
+    shifted = out[TARGET].shift(1)
+    out["cnt_range_3"] = shifted.rolling(3).max() - shifted.rolling(3).min()
+
     return out.dropna().reset_index(drop=True)
 
 
