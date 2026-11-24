@@ -57,6 +57,17 @@ def test_rolling_mean_excludes_today(feats):
         assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
 
 
+def test_cnt_range_3(feats):
+    """cnt_range_3 for 2011-02-01 is the max minus the min of cnt over the
+    three calendar days before it.
+
+    Hand-computed from strictly earlier dates: Jan 29 = 1098, Jan 30 = 1096,
+    Jan 31 = 1501, so cnt_range_3 = max - min = 1501 - 1096 = 405.
+    """
+    date = pd.Timestamp("2011-02-01")
+    assert feats.set_index("dteday").cnt_range_3[date] == pytest.approx(405)
+
+
 def test_no_missing_values(feats):
     assert feats[feature_columns(feats)].isna().sum().sum() == 0
 
