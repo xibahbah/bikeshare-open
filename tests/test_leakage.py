@@ -68,6 +68,14 @@ def test_cnt_range_3(feats):
     assert feats.set_index("dteday").cnt_range_3[date] == pytest.approx(405)
 
 
+def test_encode_weather_rejects_unknown_label():
+    """encode_weather must fail loudly on an unmapped weather label."""
+    from src.features import encode_weather
+
+    with pytest.raises(ValueError, match="UNMAPPED"):
+        encode_weather(pd.Series(["GOOD", "UNMAPPED"]))
+
+
 def test_no_missing_values(feats):
     assert feats[feature_columns(feats)].isna().sum().sum() == 0
 
