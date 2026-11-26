@@ -62,9 +62,11 @@ def temporal_split(df: pd.DataFrame):
     return train, valid, test
 
 
-def fit_and_score() -> dict:
+def fit_and_score(exclude_feature: str | None = None) -> dict:
     df = pd.read_parquet(PROCESSED)
     cols = feature_columns(df)
+    if exclude_feature is not None:
+        cols.remove(exclude_feature)
     train, valid, test = temporal_split(df)
 
     results = {
@@ -88,6 +90,7 @@ def fit_and_score() -> dict:
 
 if __name__ == "__main__":
     res = fit_and_score()
+    res["before_feature"] = fit_and_score(exclude_feature="cnt_range_3")
     METRICS.parent.mkdir(parents=True, exist_ok=True)
     METRICS.write_text(json.dumps(res, indent=2))
     print(json.dumps({k: v for k, v in res.items() if k != "features"}, indent=2))
