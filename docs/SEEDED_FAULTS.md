@@ -4,6 +4,18 @@
 
 Temporary change: appended `casual` to the list returned by `feature_columns`.
 
+Exact change reproduced in an isolated checkout on 2026-11-25. The original test and hook output below is retained from the initial experiment.
+
+```diff
+diff --git a/src/features.py b/src/features.py
+index 342ac56..2e5d2d1 100644
+--- a/src/features.py
++++ b/src/features.py
+@@ -91 +91 @@ def feature_columns(df: pd.DataFrame) -> list[str]:
+-    return [c for c in numeric if c not in FORBIDDEN]
++    return [c for c in numeric if c not in FORBIDDEN] + ["casual"]
+```
+
 ### Hook stderr (replay with the fault still present)
 
 ```text
@@ -293,3 +305,103 @@ No PostToolUse hook message appeared because the hook matches `Edit|Write`.
 A read-only filesystem permission on `data/raw/` for the agent process would
 prevent an extra file from being created. Checking the original CSV's hash
 alone would miss this extra file because the original was unchanged.
+
+## Final verification — A renamed target must also fail
+
+On 2026-11-25, a submission check in an isolated checkout added `demand_proxy = cnt`. All 17 original tests passed, exposing a gap in checks based only on column names. Codex added independent value checks for renamed target components and exact affine target identities using up to three selected features. The following is actual output from repeating that injection against the strengthened suite; none of these temporary source edits were made in the submission working tree.
+
+```diff
+diff --git a/src/features.py b/src/features.py
+index 342ac56..8a7398e 100644
+--- a/src/features.py
++++ b/src/features.py
+@@ -84,0 +85 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
++    out["demand_proxy"] = out[TARGET]
+```
+
+### Failing test output from isolated checkout
+
+```text
+python -m pytest tests/ -q
+..............FF...                                                      [100%]
+=================================== FAILURES ===================================
+______________________ test_no_renamed_target_components _______________________
+
+feats =         dteday  instant  season  ...   cnt_roll_7 cnt_range_3 demand_proxy
+0   2011-01-10     10.0  WINTER  ...  1344....1754.0       1796.0
+713 2012-12-31    731.0  WINTER  ...  1531.428571      1754.0       2729.0
+
+[714 rows x 30 columns]
+
+    def test_no_renamed_target_components(feats):
+        """Changing a forbidden column's name must not hide its values."""
+        for column in feature_columns(feats):
+            for source in (TARGET, "casual", "registered"):
+>               assert not np.allclose(feats[column], feats[source], rtol=0, atol=1e-6), (
+                    f"Feature {column!r} copies forbidden values from {source!r}"
+                )
+E               AssertionError: Feature 'demand_proxy' copies forbidden values from 'cnt'
+E               assert not True
+E                +  where True = <function allclose at 0x106af33b0>(0      1321.0\n1      1263.0\n2      1162.0\n3      1406.0\n4      1421.0\n        ...  \n709    2114.0\n710    3095.0\n711    1341.0\n712    1796.0\n713    2729.0\nName: demand_proxy, Length: 714, dtype: float64, 0      1321.0\n1      1263.0\n2      1162.0\n3      1406.0\n4      1421.0\n        ...  \n709    2114.0\n710    3095.0\n711    1341.0\n712    1796.0\n713    2729.0\nName: cnt, Length: 714, dtype: float64, rtol=0, atol=1e-06)
+E                +    where <function allclose at 0x106af33b0> = np.allclose
+
+tests/test_leakage.py:95: AssertionError
+__________________ test_no_feature_subset_reconstructs_target __________________
+
+feats =         dteday  instant  season  ...   cnt_roll_7 cnt_range_3 demand_proxy
+0   2011-01-10     10.0  WINTER  ...  1344....1754.0       1796.0
+713 2012-12-31    731.0  WINTER  ...  1531.428571      1754.0       2729.0
+
+[714 rows x 30 columns]
+
+    def test_no_feature_subset_reconstructs_target(feats):
+        """Check values, independently of FORBIDDEN, for small affine identities."""
+        columns = feature_columns(feats)
+        values = feats[columns].to_numpy(dtype=float)
+        target = feats[TARGET].to_numpy(dtype=float)
+        intercept = np.ones(len(feats))
+        for size in range(1, 4):
+            for indices in combinations(range(len(columns)), size):
+                design = np.column_stack((values[:, indices], intercept))
+                weights, *_ = np.linalg.lstsq(design, target, rcond=None)
+                error = np.max(np.abs(design @ weights - target))
+                names = [columns[i] for i in indices]
+>               assert error >= 1e-6, f"Features {names} exactly reconstruct {TARGET}"
+E               AssertionError: Features ['demand_proxy'] exactly reconstruct cnt
+E               assert np.float64(1.8189894035458565e-12) >= 1e-06
+
+tests/test_leakage.py:112: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_no_renamed_target_components - AssertionEr...
+FAILED tests/test_leakage.py::test_no_feature_subset_reconstructs_target - As...
+2 failed, 17 passed in 1.44s
+make: *** [test] Error 1
+```
+
+### Hook stderr from manual replay in isolated checkout
+
+```text
+Leakage tests failed after editing /var/folders/yz/_7p_x_bn74ggmxzd16qn0py80000gn/T/bikeshare-final-faults-qg8wbfts/repo/src/features.py:
+        """Check values, independently of FORBIDDEN, for small affine identities."""
+        columns = feature_columns(feats)
+        values = feats[columns].to_numpy(dtype=float)
+        target = feats[TARGET].to_numpy(dtype=float)
+        intercept = np.ones(len(feats))
+        for size in range(1, 4):
+            for indices in combinations(range(len(columns)), size):
+                design = np.column_stack((values[:, indices], intercept))
+                weights, *_ = np.linalg.lstsq(design, target, rcond=None)
+                error = np.max(np.abs(design @ weights - target))
+                names = [columns[i] for i in indices]
+>               assert error >= 1e-6, f"Features {names} exactly reconstruct {TARGET}"
+E               AssertionError: Features ['demand_proxy'] exactly reconstruct cnt
+E               assert np.float64(1.8189894035458565e-12) >= 1e-06
+
+tests/test_leakage.py:112: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_no_renamed_target_components - AssertionEr...
+FAILED tests/test_leakage.py::test_no_feature_subset_reconstructs_target - As...
+2 failed, 9 passed in 0.40s
+```
+
+The hook returned exit code 2. A renamed `casual` column and an affine target copy (`2 * cnt + 7`) also failed. The clean working tree passed all 19 tests after this verification. The guard improvement took one Codex implementation turn; the temporary mutations were removed from the isolated checkouts. These finite identity checks do not prove that every possible information leak is absent.

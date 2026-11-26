@@ -15,10 +15,11 @@ reason it fails is the headline result.
 
 Run: python -m src.train
 """
+import argparse
 import json
 
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
@@ -88,9 +89,50 @@ def fit_and_score(exclude_feature: str | None = None) -> dict:
     return results
 
 
+def score_residual_experiment(split: str) -> dict:
+    """Reproduce Exercise 4 without overwriting the untransformed metrics."""
+    if split not in {"valid", "test"}:
+        raise ValueError("split must be 'valid' or 'test'")
+    df = pd.read_parquet(PROCESSED)
+    columns = feature_columns(df)
+    train, valid, test = temporal_split(df)
+    evaluation = valid if split == "valid" else test
+    predictions = {}
+    for name, estimator in MODELS.items():
+        model = clone(estimator).fit(train[columns], train[TARGET])
+        predictions[name] = model.predict(evaluation[columns])
+    residual = clone(MODELS["hgb"]).fit(
+        train[columns], train[TARGET] - train["cnt_roll_7"]
+    )
+    predictions["hgb_residual"] = (
+        residual.predict(evaluation[columns]) + evaluation["cnt_roll_7"].to_numpy()
+    )
+    return {
+        "split": split,
+        "n_train": len(train),
+        "n_evaluation": len(evaluation),
+        "scores": {
+            name: {
+                "r2": round(float(r2_score(evaluation[TARGET], prediction)), 4),
+                "mae": round(float(mean_absolute_error(evaluation[TARGET], prediction)), 1),
+            }
+            for name, prediction in predictions.items()
+        },
+    }
+
+
 if __name__ == "__main__":
-    res = fit_and_score()
-    res["before_feature"] = fit_and_score(exclude_feature="cnt_range_3")
-    METRICS.parent.mkdir(parents=True, exist_ok=True)
-    METRICS.write_text(json.dumps(res, indent=2))
-    print(json.dumps({k: v for k, v in res.items() if k != "features"}, indent=2))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--residual", choices=["valid", "test"],
+        help="run the fixed Exercise 4 experiment on this split; print scores only",
+    )
+    args = parser.parse_args()
+    if args.residual:
+        print(json.dumps(score_residual_experiment(args.residual), indent=2))
+    else:
+        res = fit_and_score()
+        res["before_feature"] = fit_and_score(exclude_feature="cnt_range_3")
+        METRICS.parent.mkdir(parents=True, exist_ok=True)
+        METRICS.write_text(json.dumps(res, indent=2))
+        print(json.dumps({k: v for k, v in res.items() if k != "features"}, indent=2))

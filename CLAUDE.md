@@ -43,3 +43,5 @@ rides) from calendar, weather, and lagged-demand features.
 ## Assignment workflow
 - `cnt_range_3` uses the three completed calendar days before prediction.
 - Use `/capture-fault <src/file.py>` to capture evidence before repairing a seeded fault.
+- Reproduce Exercise 4 with `python -m src.train --residual valid` (or `test` after the decision).
+- Keep `reports/metrics.json` for the untransformed pipeline; residual commands print separate scores.

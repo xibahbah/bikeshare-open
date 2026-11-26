@@ -4,6 +4,9 @@ test_no_forbidden_features is the single most valuable test in this repo:
 casual + registered == cnt exactly, so any model handed those columns
 scores R^2 = 1.0 and looks brilliant while having learned nothing.
 """
+from itertools import combinations
+
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -83,3 +86,27 @@ def test_no_missing_values(feats):
 def test_dates_are_sorted_and_unique(feats):
     assert feats.dteday.is_monotonic_increasing
     assert feats.dteday.is_unique
+
+
+def test_no_renamed_target_components(feats):
+    """Changing a forbidden column's name must not hide its values."""
+    for column in feature_columns(feats):
+        for source in (TARGET, "casual", "registered"):
+            assert not np.allclose(feats[column], feats[source], rtol=0, atol=1e-6), (
+                f"Feature {column!r} copies forbidden values from {source!r}"
+            )
+
+
+def test_no_feature_subset_reconstructs_target(feats):
+    """Check values, independently of FORBIDDEN, for small affine identities."""
+    columns = feature_columns(feats)
+    values = feats[columns].to_numpy(dtype=float)
+    target = feats[TARGET].to_numpy(dtype=float)
+    intercept = np.ones(len(feats))
+    for size in range(1, 4):
+        for indices in combinations(range(len(columns)), size):
+            design = np.column_stack((values[:, indices], intercept))
+            weights, *_ = np.linalg.lstsq(design, target, rcond=None)
+            error = np.max(np.abs(design @ weights - target))
+            names = [columns[i] for i in indices]
+            assert error >= 1e-6, f"Features {names} exactly reconstruct {TARGET}"
